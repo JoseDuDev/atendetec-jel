@@ -41,13 +41,17 @@ builder.Services.AddSingleton<ITenantProvisioner>(_ => new TenantProvisioner(con
 builder.Services.AddSingleton(new JwtService(jwtSecret, jwtIssuer, jwtAudience));
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opt => opt.TokenValidationParameters = new TokenValidationParameters
+    .AddJwtBearer(opt =>
     {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-        ValidateIssuer = true, ValidIssuer = jwtIssuer,
-        ValidateAudience = true, ValidAudience = jwtAudience,
-        ValidateLifetime = true, ClockSkew = TimeSpan.Zero
+        opt.MapInboundClaims = false;
+        opt.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ValidateIssuer = true, ValidIssuer = jwtIssuer,
+            ValidateAudience = true, ValidAudience = jwtAudience,
+            ValidateLifetime = true, ClockSkew = TimeSpan.Zero
+        };
     });
 builder.Services.AddAuthorization();
 
@@ -56,8 +60,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // CORS
+var allowedOrigins = new List<string> { $"https://app.{baseDomain}" };
+if (builder.Environment.IsDevelopment())
+    allowedOrigins.Add("http://localhost:5173");
+
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p
-    .WithOrigins($"https://app.{baseDomain}", "http://localhost:5173")
+    .WithOrigins(allowedOrigins.ToArray())
     .AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
@@ -71,10 +79,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Resolve tenant and inject into context
+// Resolve tenant and inject into context — BEFORE authentication so tenant context
+// is available to auth policies
 app.Use(async (ctx, next) =>
 {
     var resolver = ctx.RequestServices.GetRequiredService<TenantResolver>();
@@ -83,6 +89,9 @@ app.Use(async (ctx, next) =>
         ctx.Items["TenantId"] = tenantId;
     await next();
 });
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
    .WithTags("System");
@@ -94,7 +103,15 @@ app.MapTenantEndpoints();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
-    await db.Database.MigrateAsync();
+    try
+    {
+        await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        Log.Fatal(ex, "Database migration failed");
+        throw;
+    }
 }
 
 app.Run();

@@ -32,6 +32,7 @@ public class PublicDbContext(DbContextOptions<PublicDbContext> options) : DbCont
             e.HasIndex(x => new { x.TenantId, x.Email }).IsUnique();
             e.Property(x => x.Role).HasMaxLength(50);
             e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne<Tenant>().WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 }
