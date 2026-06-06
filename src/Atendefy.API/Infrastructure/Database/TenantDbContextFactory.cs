@@ -8,6 +8,7 @@ public class TenantDbContextFactory(string connectionString)
     {
         var options = new DbContextOptionsBuilder<TenantDbContext>()
             .UseNpgsql(connectionString)
+            .UseSnakeCaseNamingConvention()
             .Options;
         return new TenantDbContext(options, schemaName);
     }
