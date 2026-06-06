@@ -4,24 +4,26 @@ using System.Text.Json;
 
 namespace Atendefy.API.Modules.Billing.Gateways;
 
-public class AsaasGateway(HttpClient httpClient, string apiKey, string webhookToken, bool isSandbox = false)
-    : IBillingGateway
+public class AsaasGateway : IBillingGateway
 {
-    private string BaseUrl => isSandbox
-        ? "https://sandbox.asaas.com/api/v3"
-        : "https://api.asaas.com/v3";
+    private readonly HttpClient _httpClient;
+    private readonly string _baseUrl;
+    private readonly string _webhookToken;
 
-    private void SetAuth()
+    public AsaasGateway(HttpClient httpClient, string apiKey, string webhookToken, bool isSandbox = false)
     {
-        httpClient.DefaultRequestHeaders.Remove("access_token");
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("access_token", apiKey);
+        _httpClient = httpClient;
+        _webhookToken = webhookToken;
+        _baseUrl = isSandbox
+            ? "https://sandbox.asaas.com/api/v3"
+            : "https://api.asaas.com/v3";
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("access_token", apiKey);
     }
 
     public async Task<string> CreateCustomerAsync(string name, string email, string cpfCnpj)
     {
-        SetAuth();
         var payload = new { name, email, cpfCnpj };
-        var response = await httpClient.PostAsJsonAsync($"{BaseUrl}/customers", payload);
+        var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/customers", payload);
         response.EnsureSuccessStatusCode();
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         return json.GetProperty("id").GetString()!;
@@ -29,7 +31,6 @@ public class AsaasGateway(HttpClient httpClient, string apiKey, string webhookTo
 
     public async Task<BillingCharge> CreateChargeAsync(CreateChargeArgs args)
     {
-        SetAuth();
         var payload = new
         {
             customer = args.CustomerExternalId,
@@ -38,7 +39,7 @@ public class AsaasGateway(HttpClient httpClient, string apiKey, string webhookTo
             dueDate = args.DueDate.ToString("yyyy-MM-dd"),
             description = args.Description
         };
-        var response = await httpClient.PostAsJsonAsync($"{BaseUrl}/payments", payload);
+        var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/payments", payload);
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -62,13 +63,13 @@ public class AsaasGateway(HttpClient httpClient, string apiKey, string webhookTo
 
     public async Task CancelChargeAsync(string externalId)
     {
-        SetAuth();
-        var response = await httpClient.DeleteAsync($"{BaseUrl}/payments/{externalId}");
+        var response = await _httpClient.DeleteAsync($"{_baseUrl}/payments/{externalId}");
         response.EnsureSuccessStatusCode();
     }
 
+    // Asaas uses static token comparison; payload is intentionally unused (no HMAC required)
     public bool ValidateWebhook(byte[] payload, string headerValue)
-        => headerValue == webhookToken;
+        => headerValue == _webhookToken;
 
     public WebhookEvent? ParseWebhookEvent(string json)
     {

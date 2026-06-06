@@ -105,4 +105,12 @@ public class AsaasGatewayTests
         evt!.IsOverdue.Should().BeTrue();
         evt.IsPaid.Should().BeFalse();
     }
+
+    [Fact]
+    public void ParseWebhookEvent_MalformedOrMissingFields_ShouldReturnNull()
+    {
+        var gateway = new AsaasGateway(new HttpClient(), "sk", "tok", isSandbox: true);
+        gateway.ParseWebhookEvent("not-json").Should().BeNull();
+        gateway.ParseWebhookEvent("""{"event":"PAYMENT_RECEIVED"}""").Should().BeNull(); // missing payment node
+    }
 }
