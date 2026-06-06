@@ -29,7 +29,7 @@ public class AuthService(PublicDbContext db, JwtService jwtService)
         if (user is null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             return Result<AuthResponse>.Fail("Email ou senha inválidos");
 
-        var accessToken = jwtService.GenerateAccessToken(user.Id, tenant.Id, user.Role);
+        var accessToken = jwtService.GenerateAccessToken(user.Id, tenant.Id, user.Role, user.Email);
         var refreshToken = jwtService.GenerateRefreshToken();
 
         return Result<AuthResponse>.Ok(new AuthResponse(

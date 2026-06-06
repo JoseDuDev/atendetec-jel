@@ -18,31 +18,37 @@ public class AsaasGateway : IBillingGateway
             ? "https://sandbox.asaas.com/api/v3"
             : "https://api.asaas.com/v3";
         _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("access_token", apiKey);
+        _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Atendefy/1.0");
     }
 
     public async Task<string> CreateCustomerAsync(string name, string email, string cpfCnpj)
     {
-        var payload = new { name, email, cpfCnpj };
-        var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/customers", payload);
-        response.EnsureSuccessStatusCode();
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
-        return json.GetProperty("id").GetString()!;
+        var body = JsonSerializer.Serialize(new { name, email, cpfCnpj });
+        var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync($"{_baseUrl}/customers", content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Asaas {(int)response.StatusCode} [body={body}]: {responseBody}", null, response.StatusCode);
+        return JsonDocument.Parse(responseBody).RootElement.GetProperty("id").GetString()!;
     }
 
     public async Task<BillingCharge> CreateChargeAsync(CreateChargeArgs args)
     {
-        var payload = new
+        var body = JsonSerializer.Serialize(new
         {
             customer = args.CustomerExternalId,
             billingType = args.BillingType,
             value = args.Amount,
             dueDate = args.DueDate.ToString("yyyy-MM-dd"),
             description = args.Description
-        };
-        var response = await _httpClient.PostAsJsonAsync($"{_baseUrl}/payments", payload);
-        response.EnsureSuccessStatusCode();
+        });
+        var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        var response = await _httpClient.PostAsync($"{_baseUrl}/payments", content);
+        var responseBody = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Asaas {(int)response.StatusCode} [body={body}]: {responseBody}", null, response.StatusCode);
 
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var json = JsonDocument.Parse(responseBody).RootElement;
         var id = json.GetProperty("id").GetString()!;
 
         string? boletoUrl = null, boletoBarcode = null, pixCopyPaste = null;
@@ -54,7 +60,9 @@ public class AsaasGateway : IBillingGateway
             boletoBarcode = idField.GetString();
 
         if (json.TryGetProperty("pixTransaction", out var pixTx) &&
+            pixTx.ValueKind == JsonValueKind.Object &&
             pixTx.TryGetProperty("qrCode", out var qr) &&
+            qr.ValueKind == JsonValueKind.Object &&
             qr.TryGetProperty("payload", out var pixPayload))
             pixCopyPaste = pixPayload.GetString();
 
@@ -64,7 +72,11 @@ public class AsaasGateway : IBillingGateway
     public async Task CancelChargeAsync(string externalId)
     {
         var response = await _httpClient.DeleteAsync($"{_baseUrl}/payments/{externalId}");
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            throw new HttpRequestException($"Asaas {(int)response.StatusCode}: {body}", null, response.StatusCode);
+        }
     }
 
     // Asaas uses static token comparison; payload is intentionally unused (no HMAC required)

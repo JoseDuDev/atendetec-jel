@@ -57,7 +57,7 @@ public class BillingService(PublicDbContext db, IBillingGatewayFactory gatewayFa
             Provider = request.Provider,
             BillingType = request.BillingType,
             ExternalId = charge.ExternalId,
-            DueDate = dueDate.ToDateTime(TimeOnly.MinValue),
+            DueDate = dueDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
             BoletoUrl = charge.BoletoUrl,
             BoletoBarcode = charge.BoletoBarcode,
             PixCopyPaste = charge.PixCopyPaste,

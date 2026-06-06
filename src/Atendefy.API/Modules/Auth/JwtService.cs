@@ -10,13 +10,14 @@ public class JwtService(string secret, string issuer, string audience)
 {
     private readonly SymmetricSecurityKey _key = new(Encoding.UTF8.GetBytes(secret));
 
-    public string GenerateAccessToken(Guid userId, Guid tenantId, string role)
+    public string GenerateAccessToken(Guid userId, Guid tenantId, string role, string email)
     {
         var claims = new[]
         {
             new Claim("sub", userId.ToString()),
             new Claim("tenant_id", tenantId.ToString()),
             new Claim("role", role),
+            new Claim("email", email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
 
