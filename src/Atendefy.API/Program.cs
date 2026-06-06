@@ -90,7 +90,6 @@ builder.Services.AddHostedService(sp => new ConversationWorker(
     sp.GetRequiredService<RedisStreamService>(),
     sp.GetRequiredService<ConversationService>(),
     sp.GetRequiredService<TenantDbContextFactory>(),
-    sp.GetRequiredService<PublicDbContext>(),
     sp.GetRequiredService<AIProviderFactory>(),
     sp.GetRequiredService<WhatsAppProviderFactory>(),
     sp.GetRequiredService<TenantRateLimiter>(),

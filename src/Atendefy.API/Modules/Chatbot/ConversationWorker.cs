@@ -16,7 +16,6 @@ public class ConversationWorker(
     RedisStreamService streams,
     ConversationService conversationService,
     TenantDbContextFactory tenantDbFactory,
-    PublicDbContext publicDb,
     AIProviderFactory aiFactory,
     WhatsAppProviderFactory whatsAppFactory,
     TenantRateLimiter rateLimiter,
