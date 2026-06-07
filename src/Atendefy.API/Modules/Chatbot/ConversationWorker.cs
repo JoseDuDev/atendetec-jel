@@ -77,6 +77,26 @@ public class ConversationWorker(
             return;
         }
 
+        var accountId = Guid.TryParse(msg.AccountId, out var parsedId) ? parsedId : (Guid?)null;
+
+        // Check BotPaused before loading AI config to avoid unnecessary DB reads
+        await using (var checkDb = tenantDbFactory.Create(msg.SchemaName))
+        {
+            var existing = await checkDb.Conversations
+                .FirstOrDefaultAsync(c => c.ContactPhone == msg.ContactPhone);
+
+            if (existing?.BotPaused == true)
+            {
+                var convId = await ConversationService.PersistUserOnlyAsync(
+                    tenantDbFactory, msg.SchemaName, msg.ContactPhone, msg.MessageText, accountId);
+                await UpsertContactAsync(msg.SchemaName, msg.ContactPhone);
+                emitter.Emit(msg.TenantId, JsonSerializer.Serialize(
+                    new { type = "message_added", conversationId = convId }));
+                logger.LogInformation("Bot pausado para {Phone} — mensagem salva sem resposta", msg.ContactPhone);
+                return;
+            }
+        }
+
         await using var tenantDb = tenantDbFactory.Create(msg.SchemaName);
         var aiConfig = await tenantDb.AiConfigs.FirstOrDefaultAsync();
         if (aiConfig is null)
@@ -85,7 +105,7 @@ public class ConversationWorker(
             return;
         }
 
-        var waAccount = await tenantDb.WhatsAppAccounts.FindAsync(Guid.Parse(msg.AccountId));
+        var waAccount = await tenantDb.WhatsAppAccounts.FindAsync(accountId ?? Guid.Empty);
         if (waAccount?.ConfigJson is null)
         {
             logger.LogWarning("Conta WhatsApp {AccountId} não encontrada", msg.AccountId);
@@ -108,7 +128,10 @@ public class ConversationWorker(
 
         var conversationId = await ConversationService.PersistAsync(
             tenantDbFactory, msg.SchemaName, msg.ContactPhone,
-            msg.MessageText, aiResult.Content, aiResult.TokensUsed);
+            msg.MessageText, aiResult.Content, aiResult.TokensUsed,
+            accountId);
+
+        await UpsertContactAsync(msg.SchemaName, msg.ContactPhone);
 
         emitter.Emit(msg.TenantId, JsonSerializer.Serialize(
             new { type = "message_added", conversationId }));
@@ -124,6 +147,23 @@ public class ConversationWorker(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Falha ao enviar resposta WhatsApp para {Phone} (conversa salva)", msg.ContactPhone);
+        }
+    }
+
+    private async Task UpsertContactAsync(string schemaName, string phone)
+    {
+        try
+        {
+            await using var db = tenantDbFactory.Create(schemaName);
+            if (!await db.Contacts.AnyAsync(c => c.Phone == phone))
+            {
+                db.Contacts.Add(new Contact { Phone = phone });
+                await db.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Falha ao upsert contact {Phone}", phone);
         }
     }
 }
