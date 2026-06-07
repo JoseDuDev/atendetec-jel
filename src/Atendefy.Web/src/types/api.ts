@@ -147,3 +147,12 @@ export interface DashboardStats {
   costThisMonth: number;
   whatsAppStatus: 'open' | 'close' | 'connecting' | 'none' | string;
 }
+
+export interface WhatsAppConnectResponse {
+  qrCode?: string;
+  status: string;
+}
+
+export interface WhatsAppStatusResponse {
+  status: string;
+}
