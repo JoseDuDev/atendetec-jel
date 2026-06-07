@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useCreateWhatsAppAccount, useWhatsAppAccounts } from '@/hooks/useWhatsApp';
+import { useCreateWhatsAppAccount, useWhatsAppAccounts, useConnectWhatsApp, useWhatsAppStatus } from '@/hooks/useWhatsApp';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus } from 'lucide-react';
+import { Plus, QrCode } from 'lucide-react';
 
 type Provider = 'meta' | 'evolution';
 
@@ -32,6 +32,81 @@ const CONFIG_PLACEHOLDER: Record<Provider, string> = {
     2
   ),
 };
+
+function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
+  if (status === 'connected' || status === 'open') return 'default';
+  if (status === 'disconnected' || status === 'close') return 'secondary';
+  return 'outline';
+}
+
+function statusLabel(status: string): string {
+  if (status === 'connected' || status === 'open') return 'conectado';
+  if (status === 'connecting') return 'conectando…';
+  if (status === 'disconnected' || status === 'close') return 'desconectado';
+  return status;
+}
+
+// ─── QR Code Dialog ───────────────────────────────────────────────────────────
+
+function QrDialog({ accountId }: { accountId: string }) {
+  const [open, setOpen] = useState(false);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const connect = useConnectWhatsApp();
+  const { data: statusData } = useWhatsAppStatus(accountId, open);
+
+  const isConnected = statusData?.status === 'open';
+
+  function handleOpen(value: boolean) {
+    setOpen(value);
+    if (value) {
+      setQrCode(null);
+      connect.mutate(accountId, {
+        onSuccess: (data) => {
+          if (data.qrCode) setQrCode(data.qrCode);
+        },
+      });
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger
+        render={
+          <Button size="sm" variant="outline">
+            <QrCode className="h-4 w-4 mr-1" />
+            Conectar
+          </Button>
+        }
+      />
+      <DialogContent className="max-w-sm text-center">
+        <DialogHeader>
+          <DialogTitle>Conectar WhatsApp</DialogTitle>
+        </DialogHeader>
+
+        {isConnected ? (
+          <div className="py-6 space-y-2">
+            <p className="text-2xl">✓</p>
+            <p className="font-medium text-green-600">WhatsApp conectado!</p>
+          </div>
+        ) : connect.isPending ? (
+          <p className="py-6 text-muted-foreground">Gerando QR code…</p>
+        ) : connect.isError ? (
+          <p className="py-6 text-sm text-destructive">Erro ao gerar QR code. Tente novamente.</p>
+        ) : qrCode ? (
+          <div className="space-y-3">
+            <img src={qrCode} alt="QR Code WhatsApp" className="mx-auto w-56 h-56 rounded-lg border" />
+            <p className="text-sm text-muted-foreground">
+              Abra o WhatsApp → Aparelhos conectados → Conectar um aparelho
+            </p>
+            <p className="text-xs text-muted-foreground">Verificando conexão a cada 3s…</p>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function WhatsAppPage() {
   const { data: accounts, isLoading } = useWhatsAppAccounts();
@@ -68,12 +143,6 @@ export default function WhatsAppPage() {
         'Erro ao criar conta.';
       setError(msg);
     }
-  }
-
-  function statusVariant(status: string): 'default' | 'secondary' | 'outline' {
-    if (status === 'connected') return 'default';
-    if (status === 'disconnected') return 'secondary';
-    return 'outline';
   }
 
   return (
@@ -145,13 +214,18 @@ export default function WhatsAppPage() {
           <Card key={acc.id}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium capitalize">{acc.provider}</CardTitle>
-              <Badge variant={statusVariant(acc.status)}>{acc.status}</Badge>
+              <Badge variant={statusVariant(acc.status)}>{statusLabel(acc.status)}</Badge>
             </CardHeader>
             <CardContent>
               <p className="text-sm">{acc.phone}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {new Date(acc.createdAt).toLocaleDateString('pt-BR')}
               </p>
+              {acc.provider === 'evolution' && acc.status !== 'connected' && acc.status !== 'open' && (
+                <div className="mt-3">
+                  <QrDialog accountId={acc.id} />
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}
