@@ -101,7 +101,9 @@ public class WhatsAppAccountService(
             return Result<WhatsAppConnectResult>.Fail("Falha ao obter QR code da Evolution API.");
 
         var connectJson = await connectResp.Content.ReadFromJsonAsync<JsonElement>();
-        var qrBase64 = connectJson.GetProperty("base64").GetString();
+        if (!connectJson.TryGetProperty("base64", out var base64El))
+            return Result<WhatsAppConnectResult>.Fail("Falha ao obter QR code da Evolution API.");
+        var qrBase64 = base64El.GetString();
 
         account.Status = "connecting";
         await db.SaveChangesAsync();
