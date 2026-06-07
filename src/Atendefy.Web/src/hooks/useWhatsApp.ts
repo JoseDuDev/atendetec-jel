@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
@@ -37,20 +38,23 @@ export function useConnectWhatsApp() {
 
 export function useWhatsAppStatus(id: string | null, enabled: boolean) {
   const queryClient = useQueryClient();
-  return useQuery({
+  const query = useQuery({
     queryKey: ['whatsapp-status', id],
     queryFn: () =>
       apiClient
         .get<WhatsAppStatusResponse>(`/whatsapp/accounts/${id}/status`)
         .then((r) => r.data),
     enabled: !!id && enabled,
-    refetchInterval: (query) =>
-      query.state.data?.status === 'open' ? false : 3000,
-    select: (data) => {
-      if (data.status === 'open') {
-        queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
-      }
-      return data;
-    },
+    refetchInterval: (q) =>
+      q.state.data?.status === 'open' ? false : 3000,
+    refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    if (query.data?.status === 'open') {
+      queryClient.invalidateQueries({ queryKey: ['whatsapp-accounts'] });
+    }
+  }, [query.data?.status, queryClient]);
+
+  return query;
 }
