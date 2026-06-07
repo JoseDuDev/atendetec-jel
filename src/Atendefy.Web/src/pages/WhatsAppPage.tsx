@@ -27,7 +27,7 @@ type Provider = 'meta' | 'evolution';
 const CONFIG_PLACEHOLDER: Record<Provider, string> = {
   meta: JSON.stringify({ phoneNumberId: '1234567890', accessToken: 'EAAxxxxxxx' }, null, 2),
   evolution: JSON.stringify(
-    { baseUrl: 'http://evolution-api:8080', instance: 'my-instance', apiKey: 'your-api-key' },
+    { base_url: 'http://evolution-api:8080', instance: 'atendefy-dev', api_key: 'dev_evolution_key' },
     null,
     2
   ),
