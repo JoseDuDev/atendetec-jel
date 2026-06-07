@@ -44,6 +44,36 @@ public static class WhatsAppEndpoints
             }));
         });
 
+        group.MapPost("/{id:guid}/connect", async (
+            Guid id,
+            WhatsAppAccountService service,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            var result = await service.ConnectAsync(schemaName, id);
+            return result.IsSuccess
+                ? Results.Ok(new { qrCode = result.Value!.QrCode, status = result.Value.Status })
+                : Results.BadRequest(new { error = result.Error });
+        });
+
+        group.MapGet("/{id:guid}/status", async (
+            Guid id,
+            WhatsAppAccountService service,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            var result = await service.GetStatusAsync(schemaName, id);
+            return result.IsSuccess
+                ? Results.Ok(new { status = result.Value })
+                : Results.BadRequest(new { error = result.Error });
+        });
+
         return app;
     }
 

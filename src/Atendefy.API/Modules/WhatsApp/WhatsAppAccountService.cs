@@ -3,12 +3,15 @@ using Atendefy.API.Modules.Webhooks.Models;
 using Atendefy.API.Modules.WhatsApp.Models;
 using Atendefy.API.SharedKernel;
 using Microsoft.EntityFrameworkCore;
+using System.Net.Http.Json;
+using System.Text.Json;
 
 namespace Atendefy.API.Modules.WhatsApp;
 
 public class WhatsAppAccountService(
     PublicDbContext publicDb,
-    TenantDbContextFactory tenantDbFactory)
+    TenantDbContextFactory tenantDbFactory,
+    IHttpClientFactory httpClientFactory)
 {
     private static readonly HashSet<string> ValidProviders = ["meta", "evolution"];
 
@@ -28,13 +31,12 @@ public class WhatsAppAccountService(
             Provider = request.Provider,
             Phone = request.Phone,
             ConfigJson = request.ConfigJson,
-            Status = "connected"
+            Status = "disconnected"
         };
 
         db.WhatsAppAccounts.Add(account);
         await db.SaveChangesAsync();
 
-        // Registrar rota de webhook
         var lookupKey = request.Provider == "evolution"
             ? account.Id.ToString("N")
             : ExtractMetaPhoneNumberId(request.ConfigJson);
@@ -57,9 +59,94 @@ public class WhatsAppAccountService(
         return await db.WhatsAppAccounts.ToListAsync();
     }
 
+    public async Task<Result<WhatsAppConnectResult>> ConnectAsync(string schemaName, Guid accountId)
+    {
+        await using var db = tenantDbFactory.Create(schemaName);
+        var account = await db.WhatsAppAccounts.FindAsync(accountId);
+        if (account is null) return Result<WhatsAppConnectResult>.Fail("Conta não encontrada.");
+        if (account.Provider != "evolution")
+            return Result<WhatsAppConnectResult>.Fail("Apenas contas Evolution suportam QR code.");
+
+        var cfg = EvolutionConfig.FromJson(account.ConfigJson!);
+        var client = CreateEvolutionClient(cfg.ApiKey);
+        var baseUrl = cfg.BaseUrl.TrimEnd('/');
+
+        // Check if already connected
+        var stateResp = await client.GetAsync($"{baseUrl}/instance/connectionState/{cfg.Instance}");
+        if (stateResp.IsSuccessStatusCode)
+        {
+            var stateJson = await stateResp.Content.ReadFromJsonAsync<JsonElement>();
+            var state = stateJson.GetProperty("instance").GetProperty("state").GetString();
+            if (state == "open")
+            {
+                account.Status = "connected";
+                await db.SaveChangesAsync();
+                return Result<WhatsAppConnectResult>.Ok(new WhatsAppConnectResult(null, "open"));
+            }
+        }
+
+        // Get QR code; create instance if it doesn't exist
+        var connectResp = await client.GetAsync($"{baseUrl}/instance/connect/{cfg.Instance}");
+        if (!connectResp.IsSuccessStatusCode)
+        {
+            var createPayload = new { instanceName = cfg.Instance, integration = "WHATSAPP-BAILEYS" };
+            await client.PostAsJsonAsync($"{baseUrl}/instance/create", createPayload);
+            connectResp = await client.GetAsync($"{baseUrl}/instance/connect/{cfg.Instance}");
+        }
+
+        if (!connectResp.IsSuccessStatusCode)
+            return Result<WhatsAppConnectResult>.Fail("Falha ao obter QR code da Evolution API.");
+
+        var connectJson = await connectResp.Content.ReadFromJsonAsync<JsonElement>();
+        var qrBase64 = connectJson.GetProperty("base64").GetString();
+
+        account.Status = "connecting";
+        await db.SaveChangesAsync();
+
+        return Result<WhatsAppConnectResult>.Ok(new WhatsAppConnectResult(qrBase64, "connecting"));
+    }
+
+    public async Task<Result<string>> GetStatusAsync(string schemaName, Guid accountId)
+    {
+        await using var db = tenantDbFactory.Create(schemaName);
+        var account = await db.WhatsAppAccounts.FindAsync(accountId);
+        if (account is null) return Result<string>.Fail("Conta não encontrada.");
+        if (account.Provider != "evolution")
+            return Result<string>.Fail("Apenas contas Evolution suportam status.");
+
+        var cfg = EvolutionConfig.FromJson(account.ConfigJson!);
+        var client = CreateEvolutionClient(cfg.ApiKey);
+
+        var resp = await client.GetAsync(
+            $"{cfg.BaseUrl.TrimEnd('/')}/instance/connectionState/{cfg.Instance}");
+        if (!resp.IsSuccessStatusCode)
+            return Result<string>.Ok("close");
+
+        var json = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        var state = json.GetProperty("instance").GetProperty("state").GetString() ?? "close";
+
+        if (state == "open" && account.Status != "connected")
+        {
+            account.Status = "connected";
+            await db.SaveChangesAsync();
+        }
+
+        return Result<string>.Ok(state);
+    }
+
+    private HttpClient CreateEvolutionClient(string apiKey)
+    {
+        var client = httpClientFactory.CreateClient("whatsapp");
+        client.DefaultRequestHeaders.Remove("apikey");
+        client.DefaultRequestHeaders.Add("apikey", apiKey);
+        return client;
+    }
+
     private static string ExtractMetaPhoneNumberId(string configJson)
     {
         try { return MetaConfig.FromJson(configJson).PhoneNumberId; }
         catch { return Guid.NewGuid().ToString("N"); }
     }
 }
+
+public record WhatsAppConnectResult(string? QrCode, string Status);
