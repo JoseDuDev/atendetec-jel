@@ -138,3 +138,12 @@ export interface ConversationsListResponse {
   page: number;
   pageSize: number;
 }
+
+export interface DashboardStats {
+  totalConversations: number;
+  conversationsThisMonth: number;
+  messagesThisMonth: number;
+  tokensThisMonth: number;
+  costThisMonth: number;
+  whatsAppStatus: string;
+}

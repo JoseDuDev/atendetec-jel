@@ -1,77 +1,92 @@
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { apiClient } from '@/api/client';
+import { Bot, CreditCard, MessageSquare, Wifi } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Bot, CreditCard, MessageSquare, Wifi } from 'lucide-react';
-
-function useApiHealth() {
-  return useQuery({
-    queryKey: ['health'],
-    queryFn: () =>
-      apiClient.get<{ status: string }>('/health').then((r) => r.data),
-  });
-}
+import { useDashboardStats } from '@/hooks/useDashboard';
 
 export default function DashboardPage() {
-  const { data: health, isError } = useApiHealth();
+  const { data: stats, isLoading } = useDashboardStats();
+  const waConnected = stats?.whatsAppStatus === 'open';
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <Badge variant={isError ? 'destructive' : 'default'}>
-          API {isError ? 'offline' : (health?.status ?? '…')}
+        <Badge variant={waConnected ? 'default' : 'secondary'}>
+          WhatsApp {isLoading ? '…' : (waConnected ? 'conectado' : (stats?.whatsAppStatus ?? 'none'))}
         </Badge>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          title="WhatsApp"
-          description="Conecte contas e receba mensagens"
-          icon={<Wifi className="h-5 w-5" />}
-          to="/whatsapp"
-          linkLabel="Gerenciar"
+        <StatCard
+          title="Conversas este mês"
+          value={isLoading ? '…' : String(stats?.conversationsThisMonth ?? 0)}
+          sub={`${stats?.totalConversations ?? 0} no total`}
+          icon={<MessageSquare className="h-4 w-4 text-muted-foreground" />}
         />
-        <MetricCard
-          title="IA"
-          description="Configure provedor e system prompt"
-          icon={<Bot className="h-5 w-5" />}
-          to="/ai-config"
-          linkLabel="Configurar"
+        <StatCard
+          title="Mensagens este mês"
+          value={isLoading ? '…' : String(stats?.messagesThisMonth ?? 0)}
+          icon={<MessageSquare className="h-4 w-4 text-muted-foreground" />}
         />
-        <MetricCard
-          title="Conversas"
-          description="Histórico de atendimentos"
-          icon={<MessageSquare className="h-5 w-5" />}
-          to="/conversations"
-          linkLabel="Ver"
+        <StatCard
+          title="Tokens consumidos"
+          value={isLoading ? '…' : (stats?.tokensThisMonth ?? 0).toLocaleString('pt-BR')}
+          icon={<Bot className="h-4 w-4 text-muted-foreground" />}
         />
-        <MetricCard
-          title="Billing"
-          description="Planos e assinaturas"
-          icon={<CreditCard className="h-5 w-5" />}
-          to="/billing"
-          linkLabel="Gerenciar"
+        <StatCard
+          title="Custo estimado (USD)"
+          value={isLoading ? '…' : `$${(stats?.costThisMonth ?? 0).toFixed(4)}`}
+          icon={<CreditCard className="h-4 w-4 text-muted-foreground" />}
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <ActionCard title="WhatsApp" description="Contas e webhooks" icon={<Wifi className="h-5 w-5" />} to="/whatsapp" />
+        <ActionCard title="IA" description="Provedor e system prompt" icon={<Bot className="h-5 w-5" />} to="/ai-config" />
+        <ActionCard title="Conversas" description="Histórico de atendimentos" icon={<MessageSquare className="h-5 w-5" />} to="/conversations" />
+        <ActionCard title="Billing" description="Planos e assinaturas" icon={<CreditCard className="h-5 w-5" />} to="/billing" />
       </div>
     </div>
   );
 }
 
-function MetricCard({
+function StatCard({
+  title,
+  value,
+  sub,
+  icon,
+}: {
+  title: string;
+  value: string;
+  sub?: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon}
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ActionCard({
   title,
   description,
   icon,
   to,
-  linkLabel,
 }: {
   title: string;
   description: string;
   icon: React.ReactNode;
   to: string;
-  linkLabel: string;
 }) {
   return (
     <Card>
@@ -82,7 +97,7 @@ function MetricCard({
       <CardContent>
         <p className="text-xs text-muted-foreground mb-3">{description}</p>
         <Button size="sm" variant="outline" render={<Link to={to} />}>
-          {linkLabel}
+          Acessar
         </Button>
       </CardContent>
     </Card>
