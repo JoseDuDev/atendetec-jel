@@ -14,8 +14,8 @@ function formatTime(dateStr: string): string {
 
 export default function ConversationsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const { data, isLoading } = useConversations();
-  const { data: detail, isLoading: loadingMessages } = useConversationMessages(selectedId);
+  const { data, isLoading, isError } = useConversations();
+  const { data: detail, isLoading: loadingMessages, isError: messagesError } = useConversationMessages(selectedId);
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-4">
@@ -24,7 +24,7 @@ export default function ConversationsPage() {
         <div className="p-4 border-b">
           <h1 className="text-lg font-semibold">Conversas</h1>
           {data && (
-            <p className="text-xs text-muted-foreground mt-0.5">{data.total} contato(s)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{data.total} conversa(s)</p>
           )}
         </div>
 
@@ -32,8 +32,11 @@ export default function ConversationsPage() {
           {isLoading && (
             <p className="p-4 text-sm text-muted-foreground">Carregando...</p>
           )}
+          {isError && (
+            <p className="p-4 text-sm text-destructive">Erro ao carregar conversas.</p>
+          )}
 
-          {!isLoading && data?.conversations.length === 0 && (
+          {!isLoading && !isError && data?.conversations.length === 0 && (
             <div className="p-6 text-center text-sm text-muted-foreground">
               <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
               <p>Nenhuma conversa ainda.</p>
@@ -92,6 +95,11 @@ export default function ConversationsPage() {
               {loadingMessages && (
                 <p className="text-sm text-center text-muted-foreground py-4">
                   Carregando mensagens…
+                </p>
+              )}
+              {messagesError && (
+                <p className="text-sm text-center text-destructive py-4">
+                  Erro ao carregar mensagens.
                 </p>
               )}
 
