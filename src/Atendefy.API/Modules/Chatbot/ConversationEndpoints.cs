@@ -1,6 +1,10 @@
 using Atendefy.API.Infrastructure.Database;
+using Atendefy.API.Modules.Chatbot.Models;
+using Atendefy.API.Modules.WhatsApp;
+using Atendefy.API.Modules.WhatsApp.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using System.Threading.Channels;
 
 namespace Atendefy.API.Modules.Chatbot;
@@ -20,7 +24,7 @@ public static class ConversationEndpoints
             PublicDbContext publicDb,
             HttpContext ctx) =>
         {
-            var (schemaName, error) = await ResolveSchemaAsync(ctx, publicDb);
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
             if (error is not null) return Results.Json(new { error }, statusCode: 401);
 
             if (page < 1) page = 1;
@@ -35,6 +39,7 @@ public static class ConversationEndpoints
                     c.ContactPhone,
                     c.MessageCount,
                     c.StartedAt,
+                    c.BotPaused,
                     LastMessageAt = c.Messages.Max(m => (DateTime?)m.CreatedAt) ?? c.StartedAt
                 })
                 .OrderByDescending(c => c.LastMessageAt)
@@ -53,7 +58,7 @@ public static class ConversationEndpoints
             PublicDbContext publicDb,
             HttpContext ctx) =>
         {
-            var (schemaName, error) = await ResolveSchemaAsync(ctx, publicDb);
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
             if (error is not null) return Results.Json(new { error }, statusCode: 401);
 
             await using var db = dbFactory.Create(schemaName);
@@ -74,8 +79,97 @@ public static class ConversationEndpoints
                 conversation.ContactPhone,
                 conversation.StartedAt,
                 conversation.MessageCount,
+                conversation.BotPaused,
                 messages
             });
+        });
+
+        group.MapPatch("/{id:guid}/takeover", async (
+            Guid id,
+            TenantDbContextFactory dbFactory,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            await using var db = dbFactory.Create(schemaName);
+            var conversation = await db.Conversations.FindAsync(id);
+            if (conversation is null) return Results.NotFound();
+
+            conversation.BotPaused = true;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { conversation.Id, conversation.BotPaused });
+        });
+
+        group.MapPatch("/{id:guid}/release", async (
+            Guid id,
+            TenantDbContextFactory dbFactory,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            await using var db = dbFactory.Create(schemaName);
+            var conversation = await db.Conversations.FindAsync(id);
+            if (conversation is null) return Results.NotFound();
+
+            conversation.BotPaused = false;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { conversation.Id, conversation.BotPaused });
+        });
+
+        group.MapPost("/{id:guid}/messages", async (
+            Guid id,
+            [FromBody] SendMessageRequest request,
+            TenantDbContextFactory dbFactory,
+            PublicDbContext publicDb,
+            WhatsAppProviderFactory whatsAppFactory,
+            IConversationEventEmitter emitter,
+            HttpContext ctx) =>
+        {
+            var (tenantIdStr, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            if (string.IsNullOrWhiteSpace(request.Text))
+                return Results.BadRequest(new { error = "Texto não pode ser vazio." });
+
+            await using var db = dbFactory.Create(schemaName);
+            var conversation = await db.Conversations.FindAsync(id);
+            if (conversation is null) return Results.NotFound();
+
+            if (conversation.AccountId is null)
+                return Results.BadRequest(new { error = "Conversa sem conta WhatsApp associada." });
+
+            var waAccount = await db.WhatsAppAccounts.FindAsync(conversation.AccountId.Value);
+            if (waAccount?.ConfigJson is null)
+                return Results.BadRequest(new { error = "Conta WhatsApp não encontrada." });
+
+            var message = new ConversationMessage
+            {
+                ConversationId = id,
+                Role = "agent",
+                Content = request.Text
+            };
+            db.Messages.Add(message);
+            conversation.MessageCount++;
+            await db.SaveChangesAsync();
+
+            emitter.Emit(tenantIdStr, JsonSerializer.Serialize(
+                new { type = "message_added", conversationId = id }));
+
+            try
+            {
+                var provider = whatsAppFactory.Create(waAccount.Provider, waAccount.ConfigJson);
+                await provider.SendMessageAsync(new OutboundMessage(conversation.ContactPhone, request.Text));
+            }
+            catch (Exception)
+            {
+                // Message persisted; WhatsApp delivery failure is non-fatal
+            }
+
+            return Results.Ok(new { message.Id, message.Role, message.Content, message.CreatedAt });
         });
 
         group.MapGet("/stream", async (
@@ -132,16 +226,18 @@ public static class ConversationEndpoints
         return app;
     }
 
-    private static async Task<(string SchemaName, string? Error)> ResolveSchemaAsync(
+    private static async Task<(string TenantIdStr, string SchemaName, string? Error)> ResolveTenantAsync(
         HttpContext ctx, PublicDbContext publicDb)
     {
         var tenantIdStr = ctx.User.FindFirst("tenant_id")?.Value;
         if (string.IsNullOrEmpty(tenantIdStr) || !Guid.TryParse(tenantIdStr, out var tenantId))
-            return (string.Empty, "Token inválido");
+            return (string.Empty, string.Empty, "Token inválido");
 
         var tenant = await publicDb.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId);
-        if (tenant is null) return (string.Empty, "Tenant não encontrado");
+        if (tenant is null) return (string.Empty, string.Empty, "Tenant não encontrado");
 
-        return (tenant.SchemaName, null);
+        return (tenantIdStr, tenant.SchemaName, null);
     }
 }
+
+public record SendMessageRequest(string Text);
