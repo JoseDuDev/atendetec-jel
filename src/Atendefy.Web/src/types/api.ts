@@ -114,6 +114,7 @@ export interface ConversationSummary {
   messageCount: number;
   startedAt: string;
   lastMessageAt: string;
+  botPaused: boolean;
 }
 
 export interface ConversationMessage {
@@ -129,6 +130,7 @@ export interface ConversationDetail {
   contactPhone: string;
   startedAt: string;
   messageCount: number;
+  botPaused: boolean;
   messages: ConversationMessage[];
 }
 
@@ -155,4 +157,19 @@ export interface WhatsAppConnectResponse {
 
 export interface WhatsAppStatusResponse {
   status: string;
+}
+
+export interface ContactSummary {
+  phone: string;
+  name?: string;
+  createdAt: string;
+  conversationCount: number;
+  lastActivity?: string;
+}
+
+export interface ContactsListResponse {
+  contacts: ContactSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
 }

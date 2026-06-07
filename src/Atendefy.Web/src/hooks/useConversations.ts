@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { ConversationsListResponse, ConversationDetail } from '@/types/api';
 
@@ -20,5 +20,42 @@ export function useConversationMessages(id: string | null) {
         .get<ConversationDetail>(`/conversations/${id}/messages`)
         .then((r) => r.data),
     enabled: !!id,
+  });
+}
+
+export function useTakeoverConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch(`/conversations/${id}/takeover`).then((r) => r.data),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] });
+    },
+  });
+}
+
+export function useReleaseConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.patch(`/conversations/${id}/release`).then((r) => r.data),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] });
+    },
+  });
+}
+
+export function useSendMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) =>
+      apiClient
+        .post(`/conversations/${id}/messages`, { text })
+        .then((r) => r.data),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ['conversations', id, 'messages'] });
+    },
   });
 }
