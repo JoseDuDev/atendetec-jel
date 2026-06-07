@@ -194,20 +194,27 @@ using (var tenantMigScope = app.Services.CreateScope())
     var tenants = await publicDb2.Tenants.ToListAsync();
     foreach (var t in tenants)
     {
-        await using var conn = new NpgsqlConnection(connStr);
-        await conn.OpenAsync();
-        var migSql = $"""
-            ALTER TABLE IF EXISTS "{t.SchemaName}".conversations
-                ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS account_id UUID;
-            CREATE TABLE IF NOT EXISTS "{t.SchemaName}".contacts (
-                phone VARCHAR(30) PRIMARY KEY,
-                name VARCHAR(200),
-                created_at TIMESTAMPTZ DEFAULT NOW()
-            );
-            """;
-        await using var cmd = new NpgsqlCommand(migSql, conn);
-        await cmd.ExecuteNonQueryAsync();
+        try
+        {
+            await using var conn = new NpgsqlConnection(connStr);
+            await conn.OpenAsync();
+            var migSql = $"""
+                ALTER TABLE IF EXISTS "{t.SchemaName}".conversations
+                    ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS account_id UUID;
+                CREATE TABLE IF NOT EXISTS "{t.SchemaName}".contacts (
+                    phone VARCHAR(30) PRIMARY KEY,
+                    name VARCHAR(200),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """;
+            await using var cmd = new NpgsqlCommand(migSql, conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Tenant schema migration failed for {SchemaName}", t.SchemaName);
+        }
     }
 }
 
