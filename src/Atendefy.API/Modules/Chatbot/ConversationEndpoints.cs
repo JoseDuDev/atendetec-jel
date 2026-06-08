@@ -20,6 +20,7 @@ public static class ConversationEndpoints
         group.MapGet("/", async (
             [FromQuery] int page,
             [FromQuery] int pageSize,
+            [FromQuery] string? status,
             TenantDbContextFactory dbFactory,
             PublicDbContext publicDb,
             HttpContext ctx) =>
@@ -32,7 +33,16 @@ public static class ConversationEndpoints
 
             await using var db = dbFactory.Create(schemaName);
 
-            var conversations = await db.Conversations
+            var query = db.Conversations.AsQueryable();
+            var statusFilter = status?.ToLowerInvariant();
+            if (statusFilter == "resolved")
+                query = query.Where(c => c.IsResolved);
+            else if (statusFilter != "all")
+                query = query.Where(c => !c.IsResolved);
+
+            var total = await query.CountAsync();
+
+            var conversations = await query
                 .Select(c => new
                 {
                     c.Id,
@@ -40,14 +50,13 @@ public static class ConversationEndpoints
                     c.MessageCount,
                     c.StartedAt,
                     c.BotPaused,
+                    c.IsResolved,
                     LastMessageAt = c.Messages.Max(m => (DateTime?)m.CreatedAt) ?? c.StartedAt
                 })
                 .OrderByDescending(c => c.LastMessageAt)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
-
-            var total = await db.Conversations.CountAsync();
 
             return Results.Ok(new { conversations, total, page, pageSize });
         });
@@ -80,6 +89,8 @@ public static class ConversationEndpoints
                 conversation.StartedAt,
                 conversation.MessageCount,
                 conversation.BotPaused,
+                conversation.IsResolved,
+                conversation.ResolvedAt,
                 messages
             });
         });
@@ -118,6 +129,44 @@ public static class ConversationEndpoints
             conversation.BotPaused = false;
             await db.SaveChangesAsync();
             return Results.Ok(new { conversation.Id, conversation.BotPaused });
+        });
+
+        group.MapPatch("/{id:guid}/resolve", async (
+            Guid id,
+            TenantDbContextFactory dbFactory,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            await using var db = dbFactory.Create(schemaName);
+            var conversation = await db.Conversations.FindAsync(id);
+            if (conversation is null) return Results.NotFound();
+
+            conversation.IsResolved = true;
+            conversation.ResolvedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { conversation.Id, conversation.IsResolved, conversation.ResolvedAt });
+        });
+
+        group.MapPatch("/{id:guid}/reopen", async (
+            Guid id,
+            TenantDbContextFactory dbFactory,
+            PublicDbContext publicDb,
+            HttpContext ctx) =>
+        {
+            var (_, schemaName, error) = await ResolveTenantAsync(ctx, publicDb);
+            if (error is not null) return Results.Json(new { error }, statusCode: 401);
+
+            await using var db = dbFactory.Create(schemaName);
+            var conversation = await db.Conversations.FindAsync(id);
+            if (conversation is null) return Results.NotFound();
+
+            conversation.IsResolved = false;
+            conversation.ResolvedAt = null;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { conversation.Id, conversation.IsResolved });
         });
 
         group.MapPost("/{id:guid}/messages", async (
