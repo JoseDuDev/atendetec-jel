@@ -178,6 +178,7 @@ app.MapBillingEndpoints();
 app.MapBillingWebhookEndpoints();
 app.MapConversationEndpoints();
 app.MapContactEndpoints();
+app.MapQuickReplyEndpoints();
 app.MapDashboardEndpoints();
 
 // Automatic migrations on startup
