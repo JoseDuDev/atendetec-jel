@@ -9,5 +9,7 @@ public class Conversation
     public bool IsDeleted { get; set; }
     public bool BotPaused { get; set; }
     public Guid? AccountId { get; set; }
+    public bool IsResolved { get; set; }
+    public DateTime? ResolvedAt { get; set; }
     public List<ConversationMessage> Messages { get; set; } = [];
 }

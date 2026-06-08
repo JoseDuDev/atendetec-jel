@@ -202,7 +202,9 @@ using (var tenantMigScope = app.Services.CreateScope())
             var migSql = $"""
                 ALTER TABLE IF EXISTS "{t.SchemaName}".conversations
                     ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT FALSE,
-                    ADD COLUMN IF NOT EXISTS account_id UUID;
+                    ADD COLUMN IF NOT EXISTS account_id UUID,
+                    ADD COLUMN IF NOT EXISTS is_resolved BOOLEAN DEFAULT FALSE,
+                    ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
                 CREATE TABLE IF NOT EXISTS "{t.SchemaName}".contacts (
                     phone VARCHAR(30) PRIMARY KEY,
                     name VARCHAR(200),

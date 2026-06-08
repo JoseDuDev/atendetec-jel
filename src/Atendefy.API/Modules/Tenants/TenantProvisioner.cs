@@ -42,7 +42,9 @@ public class TenantProvisioner(string connectionString) : ITenantProvisioner
                 message_count INT DEFAULT 0,
                 is_deleted BOOLEAN DEFAULT FALSE,
                 bot_paused BOOLEAN DEFAULT FALSE,
-                account_id UUID
+                account_id UUID,
+                is_resolved BOOLEAN DEFAULT FALSE,
+                resolved_at TIMESTAMPTZ
             );
 
             CREATE TABLE IF NOT EXISTS "{schemaName}".messages (

@@ -47,6 +47,8 @@ public class TenantDbContext(DbContextOptions<TenantDbContext> options, string s
             e.HasQueryFilter(x => !x.IsDeleted);
             e.Property(x => x.BotPaused).HasDefaultValue(false);
             e.Property(x => x.AccountId);
+            e.Property(x => x.IsResolved).HasDefaultValue(false);
+            e.Property(x => x.ResolvedAt);
         });
 
         modelBuilder.Entity<ConversationMessage>(e =>
