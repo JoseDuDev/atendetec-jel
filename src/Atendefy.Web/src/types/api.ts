@@ -119,7 +119,7 @@ export interface ConversationSummary {
 
 export interface ConversationMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'agent';
   content: string;
   tokensUsed: number;
   createdAt: string;
