@@ -85,7 +85,7 @@ public class ConversationWorker(
             var existing = await checkDb.Conversations
                 .FirstOrDefaultAsync(c => c.ContactPhone == msg.ContactPhone);
 
-            if (existing?.BotPaused == true)
+            if (existing?.BotPaused == true || existing?.IsResolved == true)
             {
                 var convId = await ConversationService.PersistUserOnlyAsync(
                     tenantDbFactory, msg.SchemaName, msg.ContactPhone, msg.MessageText, accountId);
