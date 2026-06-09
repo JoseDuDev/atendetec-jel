@@ -18,12 +18,16 @@ using Serilog;
 using StackExchange.Redis;
 using System.Text;
 
-Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateBootstrapLogger();
+var isTesting = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Testing";
+
+if (!isTesting)
+    Log.Logger = new LoggerConfiguration().WriteTo.Console().CreateBootstrapLogger();
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((ctx, services, config) =>
-    config.ReadFrom.Configuration(ctx.Configuration).ReadFrom.Services(services));
+if (!isTesting)
+    builder.Host.UseSerilog((ctx, services, config) =>
+        config.ReadFrom.Configuration(ctx.Configuration).ReadFrom.Services(services));
 
 var connStr       = builder.Configuration.GetConnectionString("Postgres")!;
 var redisConn     = builder.Configuration.GetConnectionString("Redis")!;
@@ -143,9 +147,13 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(p => p
 
 var app = builder.Build();
 
-app.UseExceptionHandler();
-app.UseStatusCodePages();
-app.UseSerilogRequestLogging();
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    app.UseExceptionHandler();
+    app.UseStatusCodePages();
+}
+if (!app.Environment.IsEnvironment("Testing"))
+    app.UseSerilogRequestLogging();
 app.UseCors();
 
 if (app.Environment.IsDevelopment())
@@ -181,49 +189,52 @@ app.MapContactEndpoints();
 app.MapQuickReplyEndpoints();
 app.MapDashboardEndpoints();
 
-// Automatic migrations on startup
-using (var scope = app.Services.CreateScope())
+if (!app.Environment.IsEnvironment("Testing"))
 {
-    var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
-    try { await db.Database.MigrateAsync(); }
-    catch (Exception ex) { Log.Fatal(ex, "Database migration failed"); throw; }
-}
-
-// Tenant schema migrations (idempotent — safe to re-run on every startup)
-using (var tenantMigScope = app.Services.CreateScope())
-{
-    var publicDb2 = tenantMigScope.ServiceProvider.GetRequiredService<PublicDbContext>();
-    var tenants = await publicDb2.Tenants.ToListAsync();
-    foreach (var t in tenants)
+    // Automatic migrations on startup
+    using (var scope = app.Services.CreateScope())
     {
-        try
+        var db = scope.ServiceProvider.GetRequiredService<PublicDbContext>();
+        try { await db.Database.MigrateAsync(); }
+        catch (Exception ex) { Log.Fatal(ex, "Database migration failed"); throw; }
+    }
+
+    // Tenant schema migrations (idempotent — safe to re-run on every startup)
+    using (var tenantMigScope = app.Services.CreateScope())
+    {
+        var publicDb2 = tenantMigScope.ServiceProvider.GetRequiredService<PublicDbContext>();
+        var tenants = await publicDb2.Tenants.ToListAsync();
+        foreach (var t in tenants)
         {
-            await using var conn = new NpgsqlConnection(connStr);
-            await conn.OpenAsync();
-            var migSql = $"""
-                ALTER TABLE IF EXISTS "{t.SchemaName}".conversations
-                    ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT FALSE,
-                    ADD COLUMN IF NOT EXISTS account_id UUID,
-                    ADD COLUMN IF NOT EXISTS is_resolved BOOLEAN DEFAULT FALSE,
-                    ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
-                CREATE TABLE IF NOT EXISTS "{t.SchemaName}".contacts (
-                    phone VARCHAR(30) PRIMARY KEY,
-                    name VARCHAR(200),
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                );
-                CREATE TABLE IF NOT EXISTS "{t.SchemaName}".quick_replies (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    title VARCHAR(100) NOT NULL,
-                    body TEXT NOT NULL,
-                    created_at TIMESTAMPTZ DEFAULT NOW()
-                );
-                """;
-            await using var cmd = new NpgsqlCommand(migSql, conn);
-            await cmd.ExecuteNonQueryAsync();
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "Tenant schema migration failed for {SchemaName}", t.SchemaName);
+            try
+            {
+                await using var conn = new NpgsqlConnection(connStr);
+                await conn.OpenAsync();
+                var migSql = $"""
+                    ALTER TABLE IF EXISTS "{t.SchemaName}".conversations
+                        ADD COLUMN IF NOT EXISTS bot_paused BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS account_id UUID,
+                        ADD COLUMN IF NOT EXISTS is_resolved BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
+                    CREATE TABLE IF NOT EXISTS "{t.SchemaName}".contacts (
+                        phone VARCHAR(30) PRIMARY KEY,
+                        name VARCHAR(200),
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE TABLE IF NOT EXISTS "{t.SchemaName}".quick_replies (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        title VARCHAR(100) NOT NULL,
+                        body TEXT NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    """;
+                await using var cmd = new NpgsqlCommand(migSql, conn);
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Tenant schema migration failed for {SchemaName}", t.SchemaName);
+            }
         }
     }
 }
